@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Template to build lambdas and dependencies for lambdas
+
+Parameters:
+
+  SourceLocation:
+    Type: String
+    Description: S3 bucket path where the original source code (and cfn config) is stored
+
+  STTMCreateDatabaseLocation:
+    Type: String
+    Description: S3 bucket path where the built create lambda is stored
+
+  STTMCreateDatabaseKey:
+    Type: String
+    Description: S3 key where the built create lambda is stored
+
+  Name:
+    Type: String
+    Description: Name of the stack
+
+  Config:
+    Type: String
+    Description: prod or test
+
+Resources:
+
+  LambdaRunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      Path: /
+      Policies:
+        - PolicyName: LambdaRequired
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: LambdaPolicy
+                Action:
+                  - 's3:*'
+                  - 'sns:*'
+                  - 'lambda:*'
+                  - 'athena:*'
+                  - 'glue:*'
+                Effect: Allow
+                Resource: '*'
+              - Sid: CloudWatchWriteLogsPolicy
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  STTMCreateDatabaseLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          'Fn::ImportValue': 'STTMArtifactsBucket'
+        S3Key: !Ref STTMCreateDatabaseKey
+      FunctionName:
+        Fn::Sub: sttm_create_db-${AWS::StackName}
+      Handler: "sttm_create_database.handler"
+      Role: !GetAtt LambdaRunnerRole.Arn
+      Runtime: python3.6
+      Environment:
+        Variables:
+          StackName: !Ref AWS::StackName
+          BucketName: !Sub "sttm-${AWS::StackName}"
+          DatabaseName:
+            Fn::Sub: sttm-${Config}-db
+      Timeout: 300
+
+  CreateDatabase:
+    Type: Custom::CreateDatabase
+    DependsOn: STTMCreateDatabaseLambda
+    Properties:
+      ServiceToken: !GetAtt 'STTMCreateDatabaseLambda.Arn'
+      Region: !Ref "AWS::Region"
+      DBName:
+        Fn::Sub: sttm-${AWS::StackName}-db
+
+Outputs:
+  STTMCreateDatabaseArn:
+    Description: The arn of the sttm_create_database function.
+    Value: !GetAtt 'STTMCreateDatabaseLambda.Arn'

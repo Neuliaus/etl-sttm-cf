@@ -1,0 +1,684 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'Template to build code pipeline, build and deploy lambdas from github'
+Parameters:
+  ArtifactBucket:
+    Type: String
+    Default: dex-etl-pipeline-bucket
+    Description: Name of existing S3 bucket for storing pipeline artifacts
+  GitHubOwner:
+    Type: String
+    Default: SavvyPlus
+    Description: GitHub Repository Owner
+  GitHubRepo:
+    Type: String
+    Default: etl-sttm-cf
+    Description: GitHub repo name
+  GitHubBranch:
+    Type: String
+    Default: master
+    Description: GitHub repo branch
+  GitHubToken:
+    Type: String
+    Default: fd10c4e08983a82c96ea29f74d1d9817cdb011d8
+    Description: GitHub repo OAuth token
+  PipelineName:
+    Type: String
+    Description: Name of the pipeline to create
+    Default: dex-STTM-Pipeline
+  Email:
+    Description: The email address where CodePipeline sends pipeline notifications
+    Default: ykydxt@gmail.com
+    Type: String
+  TestStackName:
+    Default: test-sttm
+    Description: A name for the test stack
+    Type: String
+  TestDBStackName:
+    Default: test-db-sttm
+    Description: A name for the test DB stack
+    Type: String
+  TestStackConfig:
+    Default: test-sttm-stack-configuration.json
+    Description: The configuration file name for the test stack
+    Type: String
+  ProdStackName:
+    Default: prod-sttm
+    Description: A name for the production stack
+    Type: String
+  ProdStackConfig:
+    Default: prod-sttm-stack-configuration.json
+    Description: The configuration file name for the production stack
+    Type: String
+  ChangeSetName:
+    Default: UpdateSTTMStack
+    Description: A name for the production STTM stack change set
+    Type: String
+  CleanupStackName:
+    Default: delete-test-files-sttm
+    Description: A name for the cleanup stack
+    Type: String
+  CreateDBStackName:
+    Default: sttm-prod-createdb-stack
+    Description: A name for the cleanup stack
+    Type: String
+  CreateDBChangeSet:
+    Default: CreateSTTMDBChangeSet
+    Description: A name for the production create database stack change set
+    Type: String
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: CodePipeline Settings
+        Parameters:
+          - PipelineName
+          - Email
+  'AWS::CloudFormation::Designer':
+    8afa232b-5a79-4ed4-91e8-57c50221ceba:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 170
+        'y': 80
+      z: 1
+      embeds: []
+
+Resources:
+  CFNRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+        Version: 2012-10-17
+      Path: /
+      Policies:
+        - PolicyName: CloudFormationRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - 'ec2:*'
+                  - 's3:*'
+                  - 'sns:*'
+                  - 'sqs:*'
+                  - 'iam:*'
+                  - 'lambda:*'
+                Effect: Allow
+                Resource: '*'
+                
+  PipelineRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+        Version: 2012-10-17
+      Path: /
+      Policies:
+        - PolicyName: CodePipelineAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - 's3:*'
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DeleteStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:CreateChangeSet'
+                  - 'cloudformation:ExecuteChangeSet'
+                  - 'cloudformation:DeleteChangeSet'
+                  - 'cloudformation:DescribeChangeSet'
+                  - 'cloudformation:SetStackPolicy'
+                  - 'codebuild:StartBuild'
+                  - 'codebuild:BatchGetBuilds'
+                  - 'iam:PassRole'
+                  - 'sns:Publish'
+                Effect: Allow
+                Resource: '*'
+
+  CloudFormationRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AdministratorAccess'
+        
+  CodeBuildRole:
+    Type: 'AWS::IAM::Role'
+    DependsOn: CloudFormationRole
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+      Policies:
+        - PolicyName: ServiceRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: CloudWatchWriteLogsPolicy
+                Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+              - Sid: S3GetObjectPolicy
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:GetObjectVersion'
+                Resource: '*'
+              - Sid: S3PutObjectPolicy
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource: '*'
+
+  CodePipelineSNSTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      Subscription:
+        - Endpoint: !Ref Email
+          Protocol: email
+
+  CodeBuildSTTMLambda:
+    Type: 'AWS::CodeBuild::Project'
+    DependsOn: CloudFormationRole
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/python:3.5.2'
+        Type: LINUX_CONTAINER
+      Name: CodeBuildSTTMLambda
+      ServiceRole: !GetAtt 
+        - CodeBuildRole
+        - Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: sttm/buildspec.yaml
+      TimeoutInMinutes: 5
+      Cache:
+        Location: dex-etl-build-cache
+        Type: S3
+
+  CodeBuildSTTMDeleteTestFilesLambda:
+    Type: 'AWS::CodeBuild::Project'
+    DependsOn: CloudFormationRole
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/python:3.5.2'
+        Type: LINUX_CONTAINER
+      Name: CodeBuildSTTMDeleteTestFilesLambda
+      ServiceRole: !GetAtt 
+        - CodeBuildRole
+        - Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: sttm-clean-test-files/buildspec.yaml
+      TimeoutInMinutes: 5
+      Cache:
+        Location: dex-etl-build-cache
+        Type: S3
+
+  CodeBuildSTTMCreateFoldersLambda:
+    Type: 'AWS::CodeBuild::Project'
+    DependsOn: CloudFormationRole
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/python:3.5.2'
+        Type: LINUX_CONTAINER
+      Name: CodeBuildSTTMCreateFoldersLambda
+      ServiceRole: !GetAtt 
+        - CodeBuildRole
+        - Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: sttm-create-folders/buildspec.yaml
+      TimeoutInMinutes: 5
+      Cache:
+        Location: dex-etl-build-cache
+        Type: S3
+
+  CodeBuildSTTMPartitionLambda:
+    Type: AWS::CodeBuild::Project
+    DependsOn: CloudFormationRole
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/python:3.5.2
+        Type: LINUX_CONTAINER
+      Name: 'CodeBuildSTTMPartitionLambda'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: 'sttm-partition/buildspec.yaml'
+      TimeoutInMinutes: 5 # must be between 5 minutes and 8 hours
+      Cache:
+        Location: 'dex-etl-build-cache'
+        Type: S3
+
+  CodeBuildSTTMCreateDatabaseLambda:
+    Type: AWS::CodeBuild::Project
+    DependsOn: CloudFormationRole
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/python:3.5.2
+        Type: LINUX_CONTAINER
+      Name: 'CodeBuildSTTMCreateDatabaseLambda'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: 'sttm-create-database/buildspec.yaml'
+      TimeoutInMinutes: 5 # must be between 5 minutes and 8 hours
+      Cache:
+        Location: 'dex-etl-build-cache'
+        Type: S3
+
+  Pipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      RoleArn: !GetAtt 
+        - PipelineRole
+        - Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Name: !Ref PipelineName
+      Stages:
+        - Name: GitHubSource
+          Actions:
+            - Name: TemplateSource
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+              OutputArtifacts:
+                - Name: SourceCode
+              RunOrder: 1
+        - Name: BuildSTTMLambdas
+          Actions:
+            - Name: BuildSTTMLambda
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildSTTMLambda
+              InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
+                - Name: BuildSTTMLambdaOutput
+            - Name: BuildSTTMDeleteTestFilesLambda
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildSTTMDeleteTestFilesLambda
+              InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
+                - Name: BuildSTTMDeleteTestFilesLambdaOutput
+            - Name: BuildSTTMCreateDatabaseLambda
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildSTTMCreateDatabaseLambda
+              InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
+                - Name: BuildSTTMCreateDatabaseLambdaOutput
+            - Name: BuildSTTMCreateFoldersLambda
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildSTTMCreateFoldersLambda
+              InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
+                - Name: BuildSTTMFoldersLambdaOutput
+            - Name: BuildSTTMPartitionLambda
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildSTTMPartitionLambda
+              InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
+                - Name: BuildSTTMPartitionLambdaOutput
+
+        - Name: TestStage
+          Actions:
+            - Name: CreateLambdasAndDependencies
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceCode
+                - Name: BuildSTTMLambdaOutput
+                - Name: BuildSTTMCreateFoldersLambdaOutput
+                - Name: BuildSTTMPartitionLambdaOutput
+              Configuration:
+                ActionMode: REPLACE_ON_FAILURE
+                RoleArn: !GetAtt 
+                  - CFNRole
+                  - Arn
+                StackName: !Ref TestStackName
+                Capabilities: CAPABILITY_NAMED_IAM
+                TemplateConfiguration: !Sub 'SourceCode::cloudformation/config/${TestStackConfig}'
+                TemplatePath: 'SourceCode::cloudformation/lambda.cfn.yaml'
+                ParameterOverrides: !Sub |
+                  {
+                    "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
+                    
+                    "STTMKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMAGLLambdaOutput", "ObjectKey"] },
+              
+                    "STTMCreateFoldersKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateFoldersLambdaOutput", "ObjectKey"] },
+
+                    "STTMPartitionKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMPartitionLambdaOutput", "ObjectKey"] },
+
+                    "Config": "test"
+                  }
+              RunOrder: '1'
+
+            - Name: CreateTestDatabaseLambda
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceCode
+                - Name: BuildSTTMCreateDatabaseLambdaOutput
+              Configuration:
+                ActionMode: REPLACE_ON_FAILURE
+                RoleArn: !GetAtt [CFNRole, Arn]
+                StackName: !Ref TestDBStackName
+                Capabilities: CAPABILITY_NAMED_IAM
+                TemplateConfiguration: !Sub "SourceCode::cloudformation/config/${TestStackConfig}"
+                TemplatePath: "SourceCode::cloudformation/athena-lambda.cfn.yaml"
+                ParameterOverrides: !Sub |
+                  {
+                    "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
+                    "STTMCreateDatabaseLocation" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "URL"] },
+                    "STTMCreateDatabaseKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "ObjectKey"] },
+                    "Config": "test"
+                  }
+              RunOrder: '2'
+
+            - Name: ApproveTestStack
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                NotificationArn: !Ref CodePipelineSNSTopic
+                CustomData: !Sub >-
+                  Do you want to create a changeset against the production stack
+                  and delete the test stack?
+              RunOrder: '3'
+
+            - Name: CleanupTestFiles
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceCode
+                - Name: BuildSTTMDeleteTestFilesLambdaOutput
+              Configuration:
+                ActionMode: REPLACE_ON_FAILURE
+                RoleArn: !GetAtt 
+                  - CFNRole
+                  - Arn
+                StackName: !Ref CleanupStackName
+                Capabilities: CAPABILITY_NAMED_IAM
+                TemplateConfiguration: !Sub 'SourceCode::cloudformation/config/${TestStackConfig}'
+                TemplatePath: 'SourceCode::cloudformation/clean-test-files-lambda.cfn.yaml'
+                ParameterOverrides: !Sub |
+                  {
+                    "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
+                    "STTMDeleteTestFilesLocation" : { "Fn::GetArtifactAtt" : ["BuildSTTMDeleteTestFilesLambdaOutput", "URL"] },
+                    "STTMDeleteTestFilesKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMDeleteTestFilesLambdaOutput", "ObjectKey"] },
+                    "TestStackName": !Ref TestStackName,
+                    "Config": "test"
+                  }
+              RunOrder: '4'
+
+            - Name: DeleteCleanupStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: DELETE_ONLY
+                RoleArn: !GetAtt 
+                  - CFNRole
+                  - Arn
+                StackName: !Ref CleanupStackName
+              RunOrder: '5'
+
+            - Name: DeleteTestStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: DELETE_ONLY
+                RoleArn: !GetAtt 
+                  - CFNRole
+                  - Arn
+                StackName: !Ref TestStackName
+              RunOrder: '6'
+
+            - Name: DeleteDBStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: DELETE_ONLY
+                RoleArn: !GetAtt 
+                  - CFNRole
+                  - Arn
+                StackName: !Ref TestDBStackName
+              RunOrder: '7'
+
+        - Name: ProdStage
+          Actions:
+            - Name: CreateChangeSet1
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceCode
+                - Name: BuildSTTMLambdaOutput
+                - Name: BuildSTTMCreateFoldersLambdaOutput
+                - Name: BuildSTTMPartitionLambdaOutput
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                RoleArn: !GetAtt 
+                  - CFNRole
+                  - Arn
+                StackName: !Ref ProdStackName
+                Capabilities: CAPABILITY_NAMED_IAM
+                ChangeSetName: !Ref ChangeSetName
+                TemplateConfiguration: !Sub 'SourceCode::cloudformation/config/${ProdStackConfig}'
+                TemplatePath: 'SourceCode::cloudformation/lambda.cfn.yaml'
+                ParameterOverrides: !Sub |
+                  {
+                    "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
+                    
+                    "STTMKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMAGLLambdaOutput", "ObjectKey"] },
+              
+                    "STTMCreateFoldersKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateFoldersLambdaOutput", "ObjectKey"] },
+
+                    "STTMPartitionKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMPartitionLambdaOutput", "ObjectKey"] },
+
+                    "Config": "test"
+                  }
+              RunOrder: '1'
+
+            - Name: ApproveChangeSet1
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                NotificationArn: !Ref CodePipelineSNSTopic
+                CustomData: !Sub >-
+                  A new change set was created for the ${ProdStackName} stack.
+                  Do you want to implement the changes?
+              RunOrder: '2'
+
+            - Name: ExecuteChangeSet1
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                ChangeSetName: !Ref ChangeSetName
+                RoleArn: !GetAtt 
+                  - CFNRole
+                  - Arn
+                StackName: !Ref ProdStackName
+              RunOrder: '3'
+
+            - Name: CreateChangeSet2
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceCode
+                - Name: BuildSTTMCreateDatabaseLambdaOutput
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                RoleArn: !GetAtt [CFNRole, Arn]
+                StackName: !Ref CreateDBStackName
+                Capabilities: CAPABILITY_NAMED_IAM
+                ChangeSetName: !Ref CreateDBChangeSet
+                TemplateConfiguration: !Sub "SourceCode::cloudformation/config/${ProdStackConfig}"
+                TemplatePath: "SourceCode::cloudformation/athena-lambda.cfn.yaml"
+                ParameterOverrides: !Sub |
+                  {
+                    "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
+                    "STTMCreateDatabaseLocation" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "URL"] },
+                    "STTMCreateDatabaseKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "ObjectKey"] },
+                    "Config": "prod"
+                  }
+              RunOrder: '4'
+
+            - Name: ApproveChangeSet2
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                NotificationArn: !Ref CodePipelineSNSTopic
+                CustomData: !Sub 'A new change set was created for the ${ProdStackName} stack. Do you want to implement the changes?'
+              RunOrder: '5'
+
+            - Name: ExecuteChangeSet2
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                ChangeSetName: !Ref CreateDBChangeSet
+                RoleArn: !GetAtt [CFNRole, Arn]
+                StackName: !Ref CreateDBStackName
+              RunOrder: '6'
+
+            - Name: DeleteCreateDBStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: DELETE_ONLY
+                RoleArn: !GetAtt [CFNRole, Arn]
+                StackName: !Ref CreateDBStackName
+              RunOrder: '7'
+
+Outputs:
+  ArtifactBucket:
+    Description: S3 bucket holding all the OutputArtifacts of any pipeline stage
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: STTMArtifactsBucket

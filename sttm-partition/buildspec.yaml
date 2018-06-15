@@ -1,0 +1,17 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - pip install --upgrade pip
+      - pip install -r sttm-partition/requirements.txt -t sttm-partition
+
+artifacts:
+  base-directory: sttm-partition
+  files:
+    - '**/*'
+  type: zip
+
+cache:
+  paths:
+    - /root/.cache/pip

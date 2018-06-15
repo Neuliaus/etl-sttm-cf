@@ -1,0 +1,17 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - pip install --upgrade pip
+      - pip install -r sttm-clean-test-files/requirements.txt -t sttm-clean-test-files
+
+artifacts:
+  base-directory: sttm-clean-test-files
+  files:
+    - '**/*'
+  type: zip
+
+cache:
+  paths:
+    - /root/.cache/pip

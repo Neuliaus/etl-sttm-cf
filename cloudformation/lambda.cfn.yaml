@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Template to build lambdas and dependencies for lambdas
+
+Parameters:
+
+  SourceLocation:
+    Type: String
+    Description: S3 bucket path where the original source code (and cfn config) is stored
+
+  STTMKey:
+    Type: String
+    Description: S3 key where the built sttm lambda is stored
+
+  STTMCreateFoldersKey:
+    Type: String
+    Description: S3 key path where the built sttm_create_folders lambda is stored
+
+  STTMPartitionKey:
+    Type: String
+    Description: S3 key path where the built sttm_partition lambda is stored
+
+  Name:
+    Type: String
+    Description: Name of the stack
+
+  Config: 
+    Type: String
+    Description: prod or test
+
+Resources:
+
+  STTMDLQ:
+    Type: AWS::SQS::Queue
+
+  STTMQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt [STTMDLQ, Arn]
+        maxReceiveCount: 5
+
+  STTMTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Join [ ".", [ sttm-topic, !Ref "AWS::StackName" ] ]
+      Subscription:
+        - Endpoint:
+            Fn::GetAtt:
+              - "STTMQueue"
+              - "Arn"
+          Protocol: 'sqs'
+
+  STTMQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref 'STTMQueue']
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: STTMQueuePolicy
+        Statement:
+          - Resource:
+              - Fn::GetAtt:
+                - "STTMQueue"
+                - "Arn"
+            Effect: "Allow"
+            Sid: "Allow-User-SendMessage"
+            Action:
+              - "sqs:SendMessage"
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref STTMTopic
+            Principal:
+              AWS: "*"
+
+  LambdaRunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      Path: /
+      Policies:
+        - PolicyName: LambdaRequired
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: LambdaPolicy
+                Action:
+                  - 's3:*'
+                  - 'sns:*'
+                  - 'lambda:*'
+                  - 'athena:*'
+                  - 'glue:*'
+                Effect: Allow
+                Resource: '*'
+              - Sid: CloudWatchWriteLogsPolicy
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  STTMLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          'Fn::ImportValue': 'STTMArtifactsBucket'
+        S3Key: !Ref STTMKey
+      FunctionName:
+        Fn::Sub: sttm-${AWS::StackName}
+      Handler: "handler.handler"
+      Role: !GetAtt LambdaRunnerRole.Arn
+      Runtime: python3.6
+      Environment:
+        Variables:
+          StackName: !Ref AWS::StackName
+          BucketName: !Sub "sttm-${AWS::StackName}"
+      Timeout: 300
+
+  STTMCreateFoldersLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          'Fn::ImportValue': 'STTMArtifactsBucket'
+        S3Key: !Ref STTMCreateFoldersKey
+      FunctionName:
+        Fn::Sub: sttm_create_folders-${AWS::StackName}
+      Handler: "sttm_create_folders.handler"
+      Role: !GetAtt LambdaRunnerRole.Arn
+      Runtime: python3.6
+      Environment:
+        Variables:
+          StackName: !Ref AWS::StackName
+          BucketName: !Sub "sttm-${AWS::StackName}"
+      Timeout: 300
+
+  STTMPartitionLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          'Fn::ImportValue': 'STTMArtifactsBucket'
+        S3Key: !Ref STTMPartitionKey
+      FunctionName:
+        Fn::Sub: sttm_partition-${AWS::StackName}
+      Handler: "sttm_partition.handler"
+      Role: !GetAtt LambdaRunnerRole.Arn
+      Runtime: python3.6
+      Environment:
+        Variables:
+          StackName: !Ref AWS::StackName
+          BucketName: !Sub "sttm-${AWS::StackName}"
+          DatabaseName: 
+            Fn::Sub: sttm-${Config}-db
+      Timeout: 300
+
+  
+  STTMBucketPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref STTMLambda
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "arn:aws:s3:::sttm-${AWS::StackName}"
+
+  STTMBucketPartitionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref STTMPartitionLambda
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "arn:aws:s3:::sttm-${AWS::StackName}"
+
+  STTMCreateFolders:
+    Type: Custom::CreateFolders
+    DependsOn:
+      - STTMBucketPartitionPermission
+      - STTMBucketPermission
+    Properties:
+      ServiceToken: !GetAtt 'STTMCreateFoldersLambda.Arn'
+      BucketName: !Sub "sttm-${AWS::StackName}"
+      InputFn1: !GetAtt STTMLambda.Arn
+      DoneFn: !GetAtt STTMPartitionLambda.Arn
+      
+Outputs: 
+
+  STTMDLQURL:
+    Description: "URL of DLQ"
+    Value:
+      Ref: STTMDLQ
+
+  STTMDLQArn:
+    Description: "Arn of DLQ"
+    Value:
+      !GetAtt [STTMDLQ, Arn]
+
+  STTMQueueURL:
+    Description: "URL of sttm-queue"
+    Value:
+      Ref: STTMQueue
+
+  STTMQueueArn:
+    Description: "Arn of sttm-queue"
+    Value:
+      !GetAtt [STTMQueue, Arn]
+
+  STTMTopicArn:
+    Description: "Arn of sttm-topic"
+    Value:
+      Ref: STTMTopic
+
+  STTMLambda:
+    Description: The ARN of the created STTMLambda function
+    Value:
+      !GetAtt STTMLambda.Arn
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", STTMLambda ] ]
+
+  STTMLambdaName:
+    Description: The Name of the created STTMLambda function
+    Value:
+      'sttm'
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", STTMLambdaName ] ]
+
+  STTMCreateFoldersLambda:
+    Description: The ARN of the created STTMCreateFoldersLambda function
+    Value:
+      !GetAtt STTMCreateFoldersLambda.Arn
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", STTMCreateFoldersLambda ] ]
+
+  STTMCreateFoldersLambdaName:
+    Description: The Name of the created STTMCreateFoldersLambda function
+    Value:
+      'sttm-create-folders'
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", STTMCreateFoldersLambdaName ] ]
+
+  STTMPartitionLambda:
+    Description: The ARN of the created PartitionLambda function
+    Value:
+      !GetAtt STTMPartitionLambda.Arn
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", STTMPartitionLambda ] ]
+
+  STTMPartitionLambdaName:
+    Description: The Name of the created STTMPartitionLambdaName function
+    Value:
+      'sttm-partition'
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", STTMPartitionLambdaName ] ]

@@ -1,0 +1,17 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - pip install --upgrade pip
+      - pip install -r sttm-create-database/requirements.txt -t sttm-create-database
+
+artifacts:
+  base-directory: sttm-create-database
+  files:
+    - '**/*'
+  type: zip
+
+cache:
+  paths:
+    - /root/.cache/pip
