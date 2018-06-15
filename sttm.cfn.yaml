@@ -391,7 +391,7 @@ Resources:
               InputArtifacts:
                 - Name: SourceCode
               OutputArtifacts:
-                - Name: BuildSTTMFoldersLambdaOutput
+                - Name: BuildSTTMCreateFoldersLambdaOutput
             - Name: BuildSTTMPartitionLambda
               ActionTypeId:
                 Category: Build
