@@ -18,6 +18,10 @@ Parameters:
   Name:
     Type: String
     Description: Name of the stack
+  
+  HandlerStackName:
+    Type: String
+    Description: Name of the control stack
 
   Config:
     Type: String
@@ -75,7 +79,7 @@ Resources:
       Environment:
         Variables:
           StackName: !Ref AWS::StackName
-          FromBucketName: !Sub "sttm-${AWS::StackName}"
+          FromBucketName: !Sub "sttm-${HandlerStackName}"
           DatabaseName:
             Fn::Sub: sttm-${Config}-db
       Timeout: 300

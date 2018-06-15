@@ -462,6 +462,7 @@ Resources:
                     "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
                     "STTMCreateDatabaseLocation" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "URL"] },
                     "STTMCreateDatabaseKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "ObjectKey"] },
+                    "HandlerStackName": "${TestStackName}",
                     "Config": "test"
                   }
               RunOrder: '2'
@@ -636,6 +637,7 @@ Resources:
                     "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
                     "STTMCreateDatabaseLocation" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "URL"] },
                     "STTMCreateDatabaseKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateDatabaseLambdaOutput", "ObjectKey"] },
+                    "HandlerStackName": "${ProdStackName}",
                     "Config": "prod"
                   }
               RunOrder: '4'
