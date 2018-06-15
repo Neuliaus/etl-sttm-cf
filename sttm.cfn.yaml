@@ -431,7 +431,7 @@ Resources:
                   {
                     "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
                     
-                    "STTMKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMAGLLambdaOutput", "ObjectKey"] },
+                    "STTMKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMLambdaOutput", "ObjectKey"] },
               
                     "STTMCreateFoldersKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateFoldersLambdaOutput", "ObjectKey"] },
 
@@ -576,7 +576,7 @@ Resources:
                   {
                     "SourceLocation" : { "Fn::GetArtifactAtt" : ["SourceCode", "URL"] },
                     
-                    "STTMKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMAGLLambdaOutput", "ObjectKey"] },
+                    "STTMKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMLambdaOutput", "ObjectKey"] },
               
                     "STTMCreateFoldersKey" : { "Fn::GetArtifactAtt" : ["BuildSTTMCreateFoldersLambdaOutput", "ObjectKey"] },
 
