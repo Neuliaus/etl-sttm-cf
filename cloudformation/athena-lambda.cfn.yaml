@@ -75,7 +75,7 @@ Resources:
       Environment:
         Variables:
           StackName: !Ref AWS::StackName
-          BucketName: !Sub "sttm-${AWS::StackName}"
+          FromBucketName: !Sub "sttm-${AWS::StackName}"
           DatabaseName:
             Fn::Sub: sttm-${Config}-db
       Timeout: 300
