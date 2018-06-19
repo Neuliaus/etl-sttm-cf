@@ -116,11 +116,15 @@ def parse_date(s, text=True, format="%Y-%m-%d"):
 
     return date.split("-")
 
-def process_file(data, params):
+
+def process_file(file_name, data, params):
     """
     """
     try:
         df = pd.read_csv(data, **params)
+        df["source_file_id"] = file_name
+        df["added_dttm"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         return df.to_csv(index=False)
     except Exception as e:
         print (e)
@@ -167,7 +171,7 @@ def handler(event, context):
         data = obj['Body'].read().decode('utf-8', 'ignore')
         data = StringIO(data)
 
-        output = process_file(data, params)
+        output = process_file(file_name, data, params)
 
         if not output:
             move_file(bucket, processing_key, bucket, error_key)
