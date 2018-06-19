@@ -115,7 +115,7 @@ def create_table(database_name, from_bucket, stack_name, pre, schemas, config):
                     for schema in schemas]
     sql_schemas_type = ", ".join(schemas_type)
     table_name = f"{pre}_{stack_name.replace('-','_')}"
-    sql = f"CREATE EXTERNAL TABLE IF NOT EXISTS {database_name}.{table_name} ({sql_schemas_type}) PARTITIONED BY (retailer string) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'WITH SERDEPROPERTIES ('serialization.format' = ',','field.delim' = ',' , 'quoteChar' = '\"')LOCATION 's3://{from_bucket}/athena/{pre}/'TBLPROPERTIES ('has_encrypted_data'='false','skip.header.line.count'='1')"
+    sql = f"CREATE EXTERNAL TABLE IF NOT EXISTS {database_name}.{table_name} ({sql_schemas_type}) PARTITIONED BY (retailer string) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'WITH SERDEPROPERTIES ('serialization.format' = ',','field.delim' = ',' , 'quoteChar' = '\"')LOCATION 's3://{from_bucket}/athena/{pre}/'TBLPROPERTIES ('has_encrypted_data'='false','skip.header.line.count'='1', )"
     print(f"sql: {sql}")
     queryid = athena.start_query_execution(QueryString=sql,
                                            ResultConfiguration=config)['QueryExecutionId']

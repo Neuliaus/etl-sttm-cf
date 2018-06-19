@@ -12,7 +12,7 @@
         "type": "Int",
         "name": "schedule_identifier"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "ex_ante_market_price"
     }, {
         "type": "String",
@@ -46,7 +46,7 @@
         "type": "Int",
         "name": "schedule_identifier"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "provisional_price"
     }, {
         "type": "String",
@@ -65,28 +65,28 @@
         "type": "String",
         "name": "hub_name"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "positive_deviation_price"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "negative_deviation_price"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "ex_ante_market_price"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "ex_post_imbalance_price"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "low_contingency_gas_price"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "high_contingency_gas_price"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "mos_increase_cost"
     }, {
-        "type": "Float",
+        "type": "Double",
         "name": "mos_decrease_cost"
     }, {
         "type": "Timestamp",
