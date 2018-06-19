@@ -1,6 +1,6 @@
 {
     "STTM_INT651_ExAnteMarketPrice": [{
-        "type": "Date",
+        "type": "Timestamp",
         "name": "gas_date"
     }, {
         "type": "String",
@@ -32,9 +32,15 @@
     }, {
         "type": "Timestamp",
         "name": "report_datetime"
+    },{
+        "type": "String",
+        "name": "source_file_id"
+    },{
+        "type": "Timestamp",
+        "name": "added_dttm"
     }],
     "STTM_INT654_ProvisionalMarketPrice": [{
-        "type": "Date",
+        "type": "Timestamp",
         "name": "gas_date"
     }, {
         "type": "String",
@@ -54,9 +60,15 @@
     }, {
         "type": "Timestamp",
         "name": "report_datetime"
+    },{
+        "type": "String",
+        "name": "source_file_id"
+    },{
+        "type": "Timestamp",
+        "name": "added_dttm"
     }],
     "STTM_INT690_DeviationPriceData": [{
-        "type": "Date",
+        "type": "Timestamp",
         "name": "gas_date"
     }, {
         "type": "String",
@@ -94,9 +106,15 @@
     }, {
         "type": "Timestamp",
         "name": "report_datetime"
+    },{
+        "type": "String",
+        "name": "source_file_id"
+    },{
+        "type": "Timestamp",
+        "name": "added_dttm"
     }],
     "STTM_INT652_ExAnteScheduleQuantity": [{
-        "type": "Date",
+        "type": "Timestamp",
         "name": "gas_date"
     }, {
         "type": "String",
@@ -137,5 +155,11 @@
     }, {
         "type": "Timestamp",
         "name": "report_datetime"
+    },{
+        "type": "String",
+        "name": "source_file_id"
+    },{
+        "type": "Timestamp",
+        "name": "added_dttm"
     }]
 }
