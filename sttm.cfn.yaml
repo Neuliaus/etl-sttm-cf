@@ -19,7 +19,7 @@ Parameters:
     Description: GitHub repo branch
   GitHubToken:
     Type: String
-    Default: fd10c4e08983a82c96ea29f74d1d9817cdb011d8
+    Default: 0eda8d9f7b3bca6e5b2e4d5a10048a8407211c0a
     Description: GitHub repo OAuth token
   PipelineName:
     Type: String
